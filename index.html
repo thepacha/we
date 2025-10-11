@@ -1,0 +1,781 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transcription History</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        // Avoids Flash of Unstyled Content (FOUC) by setting the theme before the body renders
+        if (localStorage.getItem('theme') === 'light' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: light)').matches)) {
+            document.documentElement.classList.add('light');
+        } else {
+            document.documentElement.classList.remove('light');
+        }
+    </script>
+    <style>
+        :root {
+            --bg-gradient-start: #262626;
+            --bg-gradient-mid: #171717;
+            --bg-gradient-end: #000000;
+            --text-primary: #f5f5f5;
+            --text-secondary: #a3a3a3;
+            --text-muted: #737373;
+            --brand-primary: #f97316; /* orange-500 */
+            --brand-secondary: #fb923c; /* orange-400 */
+            --nav-bg: rgba(23, 23, 23, 0.7);
+            --nav-border: rgba(255, 255, 255, 0.1);
+            --card-bg: rgba(38, 38, 38, 0.5);
+            --card-bg-hover: rgba(38, 38, 38, 0.75);
+            --modal-bg: rgba(64, 64, 64, 0.7); /* Brighter modal bg for dark mode */
+            --card-border: rgba(255, 255, 255, 0.1);
+            --card-border-hover: rgba(249, 115, 22, 0.3);
+            --input-bg: rgba(38, 38, 38, 0.8);
+            --input-border: #525252;
+            --tag-bg: rgba(249, 115, 22, 0.1);
+            --tag-text: #fb923c; /* orange-400 */
+            --active-nav-bg: #171717;
+            --drop-zone-bg: #262626;
+            --drop-zone-border: #404040;
+            --drop-zone-active-bg: #171717;
+            --drop-zone-active-border: #f97316;
+        }
+
+        html.light {
+            --bg-gradient-start: #ffffff;
+            --bg-gradient-mid: #f5f5f5;
+            --bg-gradient-end: #e5e5e5;
+            --text-primary: #171717;
+            --text-secondary: #525252;
+            --text-muted: #a3a3a3;
+            --brand-primary: #ea580c; /* orange-600 */
+            --brand-secondary: #f97316; /* orange-500 */
+            --nav-bg: rgba(255, 255, 255, 0.7);
+            --nav-border: rgba(0, 0, 0, 0.07);
+            --card-bg: rgba(255, 255, 255, 0.6);
+            --card-bg-hover: rgba(255, 255, 255, 0.8);
+            --modal-bg: rgba(255, 255, 255, 0.85); /* Brighter modal bg for light mode */
+            --card-border: rgba(0, 0, 0, 0.1);
+            --card-border-hover: rgba(234, 88, 12, 0.3);
+            --input-bg: rgba(250, 250, 250, 0.8);
+            --input-border: #d4d4d4;
+            --tag-bg: #ffedd5; /* orange-100 */
+            --tag-text: #c2410c; /* orange-700 */
+            --active-nav-bg: #f5f5f5;
+            --drop-zone-bg: #fafafa;
+            --drop-zone-border: #e5e5e5;
+            --drop-zone-active-bg: #f5f5f5;
+            --drop-zone-active-border: #ea580c;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-mid) 50%, var(--bg-gradient-end) 100%);
+            background-attachment: fixed;
+            color: var(--text-primary);
+        }
+        .modal-backdrop { transition: opacity 0.3s ease-in-out; }
+        .modal-content { transition: transform 0.3s ease-in-out, box-shadow 0.3s ease-in-out; }
+        
+        .glass-card, .glass-modal, nav, .search-sort-controls input, .search-sort-controls select, .mobile-menu {
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        .glass-card {
+            background: var(--card-bg); border: 1px solid var(--card-border);
+            transition: transform 0.2s ease-in-out, background 0.2s ease-in-out, border 0.2s ease-in-out;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
+        }
+        .glass-card:hover { transform: translateY(-8px); background: var(--card-bg-hover); border: 1px solid var(--card-border-hover); }
+        .glass-modal { background: var(--modal-bg); border: 1px solid var(--card-border); box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1); }
+
+        nav { background-color: var(--nav-bg); border-color: var(--nav-border); }
+        .nav-link { color: var(--text-secondary); }
+        .nav-link:hover { color: var(--text-primary); }
+        .nav-link-active { background-color: var(--active-nav-bg) !important; color: var(--text-primary) !important; }
+        .search-sort-controls input, .search-sort-controls select { background-color: var(--input-bg); border-color: var(--input-border); color: var(--text-primary); }
+        .search-sort-controls input::placeholder { color: var(--text-muted); }
+
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg-gradient-mid); }
+        ::-webkit-scrollbar-thumb { background: var(--text-muted); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+
+        .sort-select { -webkit-appearance: none; -moz-appearance: none; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 0.75rem center; background-size: 1em; }
+
+        /* Styles for Upload Page */
+        .drop-zone { border: 2px dashed var(--drop-zone-border); background-color: var(--drop-zone-bg); transition: all 0.2s ease-in-out; }
+        .drop-zone.active { border-color: var(--drop-zone-active-border); background-color: var(--drop-zone-active-bg); }
+        .file-list-item { background-color: var(--drop-zone-bg); border-color: var(--drop-zone-border) }
+        .gradient-button { background: linear-gradient(135deg, var(--brand-secondary) 0%, var(--brand-primary) 100%); transition: all 0.2s ease-in-out; }
+        .gradient-button:hover { opacity: 0.9; transform: scale(1.02); }
+        .loader { border: 4px solid rgba(255, 255, 255, 0.2); border-left-color: var(--brand-primary); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        /* Mobile Menu */
+        .mobile-menu {
+            background-color: var(--nav-bg);
+            border-bottom: 1px solid var(--nav-border);
+            max-height: 0;
+            overflow: hidden;
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: max-height 0.3s ease-out, opacity 0.3s ease-out, transform 0.3s ease-out;
+        }
+        .mobile-menu.is-open {
+            max-height: 500px;
+            opacity: 1;
+            transform: translateY(0);
+        }
+        #mobile-menu-button .icon-open { display: block; }
+        #mobile-menu-button .icon-close { display: none; }
+        #mobile-menu-button.is-open .icon-open { display: none; }
+        #mobile-menu-button.is-open .icon-close { display: block; }
+
+        /* Live Recording Button */
+        .record-button { transition: all 0.2s ease-in-out; }
+        .record-button.recording { animation: pulse-red 1.5s infinite; }
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 20px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+
+    </style>
+</head>
+<body class="antialiased">
+
+    <nav class="sticky top-0 z-40">
+        <div class="container mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center space-x-8">
+                    <div class="flex-shrink-0 flex items-center gap-2 cursor-pointer">
+                       <svg class="w-8 h-8" style="color: var(--brand-primary)" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+                       <span class="font-bold text-xl tracking-tight" style="color: var(--text-primary)">AI Voice</span>
+                    </div>
+                    <div class="hidden md:flex items-baseline space-x-1">
+                        <a href="#" id="history-link" class="nav-link nav-link-active px-3 py-2 rounded-md text-sm font-medium" aria-current="page">History</a>
+                        <a href="#" id="upload-link" class="nav-link px-3 py-2 rounded-md text-sm font-medium transition-colors">Upload</a>
+                        <a href="#" id="live-link" class="nav-link px-3 py-2 rounded-md text-sm font-medium transition-colors">Live</a>
+                    </div>
+                </div>
+                <div class="hidden md:flex items-center space-x-4">
+                     <button id="theme-toggle" type="button" class="p-2 rounded-full transition nav-link">
+                        <i data-lucide="moon" class="h-5 w-5"></i>
+                        <i data-lucide="sun" class="h-5 w-5 hidden"></i>
+                    </button>
+                    <img class="h-9 w-9 rounded-full" src="https://placehold.co/100x100/ea580c/ffffff?text=A" alt="User avatar" onerror="this.onerror=null; this.src='https://placehold.co/100x100/cccccc/ffffff?text=A';">
+                </div>
+                <div class="md:hidden flex items-center">
+                    <button id="mobile-menu-button" type="button" class="inline-flex items-center justify-center p-2 rounded-md nav-link focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[var(--brand-primary)]">
+                        <span class="sr-only">Open main menu</span>
+                        <i data-lucide="menu" class="icon-open block h-6 w-6"></i>
+                        <i data-lucide="x" class="icon-close block h-6 w-6"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="mobile-menu md:hidden" id="mobile-menu">
+            <div class="px-2 pt-2 pb-3 space-y-1 sm:px-3">
+                <a href="#" id="mobile-history-link" class="nav-link nav-link-active block px-3 py-2 rounded-md text-base font-medium" aria-current="page">History</a>
+                <a href="#" id="mobile-upload-link" class="nav-link block px-3 py-2 rounded-md text-base font-medium">Upload</a>
+                <a href="#" id="mobile-live-link" class="nav-link block px-3 py-2 rounded-md text-base font-medium">Live</a>
+            </div>
+            <div class="pt-4 pb-3 border-t" style="border-color: var(--nav-border);">
+                <div class="flex items-center px-5">
+                    <div class="flex-shrink-0">
+                        <img class="h-10 w-10 rounded-full" src="https://placehold.co/100x100/ea580c/ffffff?text=A" alt="User avatar">
+                    </div>
+                    <div class="ml-3">
+                        <div class="text-base font-medium" style="color: var(--text-primary);">Alex</div>
+                    </div>
+                    <button type="button" id="mobile-theme-toggle" class="ml-auto flex-shrink-0 p-2 rounded-full nav-link">
+                         <span class="sr-only">Toggle Theme</span>
+                        <i data-lucide="moon" class="h-6 w-6"></i>
+                        <i data-lucide="sun" class="h-6 w-6 hidden"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8">
+        
+        <div id="historyPage">
+            <header class="mb-8 text-center">
+                <h1 class="text-5xl font-extrabold tracking-tight" style="color: var(--text-primary)">Transcription History</h1>
+                <p class="mt-3 max-w-xl mx-auto" style="color: var(--text-secondary)">Browse, search, and manage your past AI transcriptions with ease.</p>
+            </header>
+            <div class="mb-8 flex flex-col sm:flex-row gap-4 items-center search-sort-controls">
+                <div class="relative flex-grow w-full">
+                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><i data-lucide="search" class="w-5 h-5" style="color: var(--text-muted)"></i></div>
+                    <input type="text" id="searchInput" placeholder="Search by title, content, or tag..." class="w-full border rounded-lg py-3 pl-12 pr-4 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)] transition">
+                </div>
+                <div class="relative w-full sm:w-auto">
+                     <select id="sortSelect" class="sort-select w-full sm:w-48 border rounded-lg py-3 px-4 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)] transition">
+                        <option value="newest">Sort by Newest</option>
+                        <option value="oldest">Sort by Oldest</option>
+                        <option value="title-asc">Sort by Title (A-Z)</option>
+                        <option value="title-desc">Sort by Title (Z-A)</option>
+                     </select>
+                </div>
+            </div>
+            <main id="transcriptionGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></main>
+            <div id="noResults" class="hidden text-center py-16">
+                 <i data-lucide="folder-search" class="w-16 h-16 mx-auto mb-4" style="color: var(--text-muted)"></i>
+                 <h3 class="text-xl font-semibold" style="color: var(--text-primary)">No Transcriptions Found</h3>
+                 <p class="mt-2" style="color: var(--text-secondary)">Your search didn't match any transcriptions.</p>
+            </div>
+            <div id="emptyState" class="hidden text-center py-16">
+                 <i data-lucide="file-plus-2" class="w-16 h-16 mx-auto mb-4" style="color: var(--text-muted)"></i>
+                 <h3 class="text-xl font-semibold" style="color: var(--text-primary)">Your History is Empty</h3>
+                 <p class="mt-2 mb-6" style="color: var(--text-secondary)">Upload or record your first transcription to get started.</p>
+                 <button id="emptyStateUploadButton" class="gradient-button text-white font-bold py-3 px-8 rounded-full shadow-lg">Upload First File</button>
+            </div>
+        </div>
+
+        <div id="uploadPage" class="hidden">
+            <header class="text-center mb-10">
+                <h1 class="text-3xl md:text-4xl font-bold mb-2" style="color: var(--text-primary)">Transcribe Your Audio & Video</h1>
+                <p class="text-lg" style="color: var(--text-secondary)">Upload your files below and let our AI handle the rest.</p>
+            </header>
+            <main class="space-y-8">
+                <div id="uploadSection">
+                    <div id="dropZone" class="drop-zone flex flex-col items-center justify-center p-12 rounded-2xl cursor-pointer text-center">
+                        <i data-lucide="upload-cloud" class="w-16 h-16 mb-4" style="color: var(--text-muted)"></i>
+                        <p class="text-xl font-semibold mb-2" style="color: var(--text-primary)">Drag & drop your files here</p>
+                        <p class="text-sm mb-4" style="color: var(--text-secondary)">or click to browse</p>
+                        <button class="gradient-button text-white font-bold py-3 px-8 rounded-full shadow-lg">Browse Files</button>
+                        <input type="file" id="fileInput" class="hidden" multiple accept="audio/*,video/*">
+                    </div>
+                    <div id="fileList" class="space-y-4 hidden mt-8"></div>
+                    <div class="p-8 rounded-2xl border bg-opacity-50 space-y-4 mt-8" style="background-color: var(--card-bg); border-color: var(--card-border)">
+                        <h2 class="text-2xl font-semibold" style="color: var(--text-primary)">Transcription Settings</h2>
+                        <div>
+                            <label for="languageSelect" class="block mb-2" style="color: var(--text-secondary)">Language</label>
+                            <select id="languageSelect" class="w-full p-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]" style="background-color: var(--drop-zone-bg); border-color: var(--drop-zone-border); color: var(--text-primary);">
+                                <option value="auto">Auto Detect</option>
+                                <option value="en-US">English (US)</option><option value="es-US">Spanish (US)</option><option value="fr-FR">French (France)</option><option value="de-DE">German (Germany)</option><option value="it-IT">Italian (Italy)</option><option value="ar-EG">Arabic (Egypt)</option>
+                            </select>
+                        </div>
+                        <div class="flex items-center">
+                            <input type="checkbox" id="speakerIdentification" class="h-5 w-5 rounded text-orange-500 focus:ring-orange-500" style="background-color: var(--drop-zone-border); border-color: var(--input-border)">
+                            <label for="speakerIdentification" class="ml-2" style="color: var(--text-secondary)">Enable Speaker Identification</label>
+                        </div>
+                    </div>
+                    <div class="text-center mt-8">
+                        <button id="transcribeButton" class="gradient-button text-white font-bold py-4 px-12 rounded-full shadow-lg text-lg w-full md:w-auto" disabled>Start Transcription</button>
+                    </div>
+                </div>
+                <div id="loading" class="hidden flex flex-col items-center justify-center p-12">
+                    <div class="loader"></div>
+                    <p class="mt-4 font-semibold text-xl" style="color: var(--text-primary)">Transcribing...</p>
+                    <p class="text-sm" style="color: var(--text-secondary)">This may take a few moments. Please do not close this page.</p>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- MODALS & MESSAGES -->
+    <div id="viewModal" class="modal-backdrop fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-50 opacity-0 pointer-events-none">
+        <div class="modal-content glass-modal rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col transform scale-95">
+            <header class="flex items-center justify-between p-4 border-b" style="border-color: var(--card-border)">
+                <h2 id="modalTitle" class="text-xl font-bold" style="color: var(--text-primary)"></h2>
+                <button onclick="closeModal('viewModal')" class="transition" style="color: var(--text-secondary)"><i data-lucide="x" class="w-6 h-6"></i></button>
+            </header>
+            <div class="p-6 overflow-y-auto"><p id="modalContent" class="whitespace-pre-wrap leading-relaxed" style="color: var(--text-secondary)"></p></div>
+            <footer class="p-4 mt-auto rounded-b-2xl" style="background-color: rgba(0,0,0,0.2); border-color: var(--card-border)">
+                 <button id="modalCopyButton" class="w-full bg-orange-600 hover:bg-orange-700 text-white font-semibold py-2.5 px-4 rounded-lg transition-transform active:scale-95 flex items-center justify-center gap-2"><i data-lucide="copy" class="w-5 h-5"></i><span id="copyButtonText">Copy Full Transcription</span></button>
+            </footer>
+        </div>
+    </div>
+    <div id="deleteModal" class="modal-backdrop fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-50 opacity-0 pointer-events-none">
+        <div class="modal-content glass-modal rounded-2xl shadow-2xl w-full max-w-md p-6 transform scale-95 text-center">
+            <div class="mx-auto bg-red-900/50 flex items-center justify-center h-12 w-12 rounded-full mb-4"><i data-lucide="trash-2" class="w-6 h-6 text-white"></i></div>
+            <h3 class="text-lg font-semibold" style="color: var(--text-primary)">Delete Transcription?</h3>
+            <p class="text-sm mt-2 mb-6" style="color: var(--text-secondary)">Are you sure? This action cannot be undone.</p>
+            <div class="flex justify-center gap-4">
+                <button onclick="closeModal('deleteModal')" class="flex-1 bg-gray-700/50 hover:bg-gray-600/50 border border-gray-600 text-white font-semibold py-2 px-4 rounded-lg transition">Cancel</button>
+                <button id="confirmDeleteButton" class="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg transition">Delete</button>
+            </div>
+        </div>
+    </div>
+     <div id="liveRecordModal" class="modal-backdrop fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-50 opacity-0 pointer-events-none">
+        <div class="modal-content glass-modal rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col transform scale-95">
+            <header class="flex items-center justify-between p-4 border-b" style="border-color: var(--card-border)">
+                <h2 class="text-xl font-bold flex items-center gap-2" style="color: var(--text-primary)"><i data-lucide="mic" class="w-6 h-6"></i>Live Transcription</h2>
+                <button onclick="closeModal('liveRecordModal')" class="transition" style="color: var(--text-secondary)"><i data-lucide="x" class="w-6 h-6"></i></button>
+            </header>
+            <div class="p-8 text-center flex flex-col items-center space-y-6">
+                <p style="color: var(--text-secondary)">Press the button to start or stop recording.</p>
+                <div id="liveControls" class="flex flex-col items-center space-y-4">
+                    <button id="recordButton" class="record-button w-24 h-24 rounded-full bg-red-500 text-white flex items-center justify-center text-sm font-semibold shadow-lg hover:bg-red-600 focus:outline-none focus:ring-4 focus:ring-red-300 transition-all duration-300">
+                        Start
+                    </button>
+                    <div id="recordingStatus" class="text-sm font-medium text-red-500 hidden">Recording...</div>
+                </div>
+                <div id="liveLoadingIndicator" class="hidden flex items-center justify-center space-x-2 mt-4">
+                    <div class="loader"></div>
+                    <p style="color: var(--text-secondary)">Transcribing...</p>
+                </div>
+                <div class="w-full mt-6">
+                    <div id="liveTranscript" class="p-4 rounded-lg min-h-[100px] text-left overflow-y-auto" style="background-color: var(--input-bg); color: var(--text-primary)">
+                        Start recording to see your transcription here.
+                    </div>
+                </div>
+            </div>
+             <footer class="p-4 mt-auto rounded-b-2xl" style="background-color: rgba(0,0,0,0.2); border-color: var(--card-border)">
+                 <button id="saveRecordingButton" class="w-full bg-orange-600 hover:bg-orange-700 text-white font-semibold py-2.5 px-4 rounded-lg transition-transform active:scale-95 flex items-center justify-center gap-2">
+                    <i data-lucide="save" class="w-5 h-5"></i><span>Save & Close</span>
+                </button>
+            </footer>
+        </div>
+    </div>
+    <div id="messageBox" class="fixed inset-x-0 bottom-4 w-full flex justify-center hidden z-50"><div class="text-white p-4 rounded-lg shadow-xl text-center flex items-center"><p id="messageText"></p><button class="ml-4 font-bold focus:outline-none">&times;</button></div></div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => { 
+            lucide.createIcons();
+
+            // --- PAGE SWITCHING & NAVIGATION ---
+            const historyPage = document.getElementById('historyPage');
+            const uploadPage = document.getElementById('uploadPage');
+            const navLinks = { history: document.getElementById('history-link'), upload: document.getElementById('upload-link'), live: document.getElementById('live-link') };
+            const mobileNavLinks = { history: document.getElementById('mobile-history-link'), upload: document.getElementById('mobile-upload-link'), live: document.getElementById('mobile-live-link') };
+
+            function updateActiveLink(pageName) {
+                [...Object.values(navLinks), ...Object.values(mobileNavLinks)].forEach(link => link && link.classList.remove('nav-link-active'));
+                if (navLinks[pageName]) navLinks[pageName].classList.add('nav-link-active');
+                if (mobileNavLinks[pageName]) mobileNavLinks[pageName].classList.add('nav-link-active');
+            }
+
+            function showPage(pageName) {
+                historyPage.classList.add('hidden');
+                uploadPage.classList.add('hidden');
+                if (pageName === 'history') historyPage.classList.remove('hidden');
+                else if (pageName === 'upload') uploadPage.classList.remove('hidden');
+                updateActiveLink(pageName);
+            }
+            
+            navLinks.history.addEventListener('click', (e) => { e.preventDefault(); showPage('history'); });
+            navLinks.upload.addEventListener('click', (e) => { e.preventDefault(); showPage('upload'); });
+            mobileNavLinks.history.addEventListener('click', (e) => { e.preventDefault(); showPage('history'); closeMobileMenu(); });
+            mobileNavLinks.upload.addEventListener('click', (e) => { e.preventDefault(); showPage('upload'); closeMobileMenu(); });
+            navLinks.live.addEventListener('click', (e) => { e.preventDefault(); sessionStorage.setItem('wantsToRecord', 'true'); openModal('liveRecordModal'); });
+            mobileNavLinks.live.addEventListener('click', (e) => { e.preventDefault(); sessionStorage.setItem('wantsToRecord', 'true'); openModal('liveRecordModal'); closeMobileMenu(); });
+
+            // --- MOBILE MENU ---
+            const mobileMenuButton = document.getElementById('mobile-menu-button');
+            const mobileMenu = document.getElementById('mobile-menu');
+            let isMenuOpening = false;
+
+            function closeMobileMenu() {
+                mobileMenu.classList.remove('is-open');
+                mobileMenuButton.classList.remove('is-open');
+            }
+
+            mobileMenuButton.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const isMenuOpen = mobileMenu.classList.toggle('is-open');
+                mobileMenuButton.classList.toggle('is-open', isMenuOpen);
+                if (isMenuOpen) {
+                    isMenuOpening = true;
+                    setTimeout(() => { isMenuOpening = false; }, 300); // Animation duration buffer
+                }
+            });
+            
+            window.addEventListener('scroll', () => {
+                if (!isMenuOpening && mobileMenu.classList.contains('is-open')) closeMobileMenu();
+            }, { passive: true });
+
+            document.addEventListener('click', (e) => {
+                if (mobileMenu.classList.contains('is-open') && !mobileMenu.contains(e.target) && !mobileMenuButton.contains(e.target)) {
+                    closeMobileMenu();
+                }
+            });
+
+            // --- HISTORY PAGE LOGIC & DATA ---
+            let transcriptions = [];
+            const grid = document.getElementById('transcriptionGrid'), searchInput = document.getElementById('searchInput'), sortSelect = document.getElementById('sortSelect'), noResults = document.getElementById('noResults'), emptyState = document.getElementById('emptyState');
+            let itemToDelete = null;
+            
+            const defaultTranscriptions = [];
+
+            function saveTranscriptions() { 
+                try {
+                    localStorage.setItem('transcriptions', JSON.stringify(transcriptions));
+                } catch (e) {
+                    showMessage('Failed to save transcriptions: Storage limit reached. Please delete some transcriptions to free up space.', 'error');
+                }
+            }
+            function loadTranscriptions() {
+                try {
+                    const saved = localStorage.getItem('transcriptions');
+                    transcriptions = saved ? JSON.parse(saved) : defaultTranscriptions;
+                } catch (e) {
+                    showMessage('Failed to load transcriptions: Storage data is corrupted. Please clear your browser storage.', 'error');
+                }
+            }
+            
+            function renderCards() {
+                const searchControls = document.querySelector('.search-sort-controls');
+                if(transcriptions.length === 0) {
+                    grid.innerHTML = '';
+                    searchControls.classList.add('hidden');
+                    noResults.classList.add('hidden');
+                    emptyState.classList.remove('hidden');
+                    lucide.createIcons();
+                    return;
+                }
+
+                searchControls.classList.remove('hidden');
+                emptyState.classList.add('hidden');
+
+                grid.innerHTML = '';
+                const searchTerm = searchInput.value.toLowerCase(), sortValue = sortSelect.value;
+                let data = [...transcriptions].filter(t=>t.title.toLowerCase().includes(searchTerm)||t.snippet.toLowerCase().includes(searchTerm)||t.tags.some(tag=>tag.toLowerCase().includes(searchTerm)));
+                if (sortValue === 'newest') data.sort((a,b)=>new Date(b.date) - new Date(a.date)); else if (sortValue === 'oldest') data.sort((a,b)=>new Date(a.date) - new Date(b.date)); else if (sortValue === 'title-asc') data.sort((a,b)=>a.title.localeCompare(b.title)); else if (sortValue === 'title-desc') data.sort((a,b)=>b.title.localeCompare(a.title));
+                noResults.classList.toggle('hidden', data.length > 0);
+                data.forEach(t => {
+                    const card = document.createElement('div');
+                    card.className = 'glass-card rounded-2xl p-6 flex flex-col cursor-pointer'; card.setAttribute('data-id', t.id);
+                    const iconName = {meeting:'users',interview:'user-check',presentation:'slideshow',voicenote:'mic',upload:'upload-cloud',default:'file-text'}[t.type] || 'file-text';
+                    const formattedDate = new Date(t.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+                    card.innerHTML = `<div class="flex-grow"><div class="flex justify-between items-start mb-4"><div class="flex items-center gap-3 min-w-0"><i data-lucide="${iconName}" class="w-6 h-6 flex-shrink-0" style="color: var(--brand-secondary);"></i><h3 class="font-bold text-lg leading-tight truncate" style="color: var(--text-primary);">${t.title}</h3></div><button class="delete-btn p-2 rounded-full hover:bg-gray-700/50 transition flex-shrink-0" style="color: var(--text-secondary)" title="Delete"><i data-lucide="trash-2" class="w-5 h-5"></i></button></div><p class="text-sm mb-4 h-10 overflow-hidden" style="color: var(--text-secondary);">${t.snippet}</p><div class="flex items-center text-xs gap-4 mb-4" style="color: var(--text-muted);"><div class="flex items-center gap-1.5"><i data-lucide="calendar" class="w-3.5 h-3.5"></i> ${formattedDate}</div><div class="flex items-center gap-1.5"><i data-lucide="clock" class="w-3.5 h-3.5"></i> ${t.duration}</div></div></div><div class="mt-auto pt-4 border-t" style="border-color: var(--card-border);"><div class="flex flex-wrap gap-2">${t.tags.map(tag => `<span style="background-color: var(--tag-bg); color: var(--tag-text);" class="text-xs font-medium px-2.5 py-1 rounded-full">#${tag}</span>`).join('')}</div></div>`;
+                    card.querySelector('.delete-btn').addEventListener('click', e => { e.stopPropagation(); itemToDelete = t.id; openModal('deleteModal'); });
+                    card.addEventListener('click', () => { viewTranscription(t.id); });
+                    grid.appendChild(card);
+                });
+                lucide.createIcons();
+            }
+            searchInput.addEventListener('input', renderCards); 
+            sortSelect.addEventListener('change', renderCards);
+            document.getElementById('emptyStateUploadButton').addEventListener('click', () => showPage('upload'));
+
+            // --- MODAL & MESSAGE LOGIC ---
+            const viewModal=document.getElementById('viewModal'), deleteModal=document.getElementById('deleteModal'), modalTitle=document.getElementById('modalTitle'), modalContent=document.getElementById('modalContent'), modalCopyButton=document.getElementById('modalCopyButton'), confirmDeleteButton=document.getElementById('confirmDeleteButton'), messageBox = document.getElementById('messageBox'), messageText = document.getElementById('messageText');
+            window.openModal = (id) => { const modal = document.getElementById(id); modal.classList.remove('opacity-0', 'pointer-events-none'); modal.querySelector('.modal-content').classList.remove('scale-95'); }
+            window.closeModal = (id) => { 
+                const modal = document.getElementById(id); 
+                modal.classList.add('opacity-0', 'pointer-events-none'); 
+                modal.querySelector('.modal-content').classList.add('scale-95');
+                if (id === 'liveRecordModal') {
+                    sessionStorage.removeItem('wantsToRecord');
+                    stopLiveRecording(false); // Stop and don't transcribe if modal is closed manually
+                }
+            }
+            viewModal.addEventListener('click', e => { if (e.target === viewModal) closeModal('viewModal'); });
+            deleteModal.addEventListener('click', e => { if (e.target === deleteModal) closeModal('deleteModal'); });
+            document.getElementById('liveRecordModal').addEventListener('click', e => { if (e.target.id === 'liveRecordModal') closeModal('liveRecordModal'); });
+            confirmDeleteButton.addEventListener('click',()=>{if(itemToDelete!==null){transcriptions=transcriptions.filter(t=>t.id!==itemToDelete);saveTranscriptions();renderCards();itemToDelete=null;closeModal('deleteModal');}});
+            function viewTranscription(id) {
+                const t = transcriptions.find(item => item.id == id);
+                if (!t) {
+                    showMessage('Transcription not found. It may have been deleted or an error occurred.', 'error');
+                    return;
+                }
+                modalTitle.textContent = t.title; modalContent.textContent = t.fullText;
+                modalCopyButton.onclick = () => {
+                    const textArea = document.createElement("textarea");
+                    textArea.value = t.fullText;
+                    textArea.style.top = "0";
+                    textArea.style.left = "0";
+                    textArea.style.position = "fixed";
+                    document.body.appendChild(textArea);
+                    textArea.focus();
+                    textArea.select();
+                    try {
+                        document.execCommand('copy');
+                        const copyText = document.getElementById('copyButtonText'); 
+                        copyText.textContent = 'Copied!'; 
+                        modalCopyButton.classList.replace('bg-orange-600', 'bg-green-600'); 
+                        modalCopyButton.classList.replace('hover:bg-orange-700', 'hover:bg-green-700');
+                        setTimeout(() => { 
+                            copyText.textContent = 'Copy Full Transcription'; 
+                            modalCopyButton.classList.replace('bg-green-600', 'bg-orange-600'); 
+                            modalCopyButton.classList.replace('hover:bg-green-700', 'hover:bg-orange-700'); 
+                        }, 2000);
+                    } catch (err) {
+                        console.error('Failed to copy:', err);
+                        showMessage('Failed to copy transcription to clipboard. Please try selecting and copying manually.', 'error');
+                    }
+                    document.body.removeChild(textArea);
+                }; 
+                openModal('viewModal');
+            }
+            function showMessage(message, type = 'error') {
+                messageBox.classList.remove('hidden');
+                const box = messageBox.firstElementChild;
+                messageText.textContent = message;
+                box.classList.toggle('bg-green-500', type === 'success');
+                box.classList.toggle('bg-red-500', type !== 'success');
+                setTimeout(() => { messageBox.classList.add('hidden') }, 5000); // Increased to 5s for readability
+            }
+            messageBox.querySelector('button').addEventListener('click', () => messageBox.classList.add('hidden'));
+
+            // --- UPLOAD PAGE LOGIC ---
+            const uploadSection=document.getElementById('uploadSection'),dropZone=document.getElementById('dropZone'),fileInput=document.getElementById('fileInput'),fileList=document.getElementById('fileList'),transcribeButton=document.getElementById('transcribeButton'),loadingScreen=document.getElementById('loading'),languageSelect=document.getElementById('languageSelect'),speakerIdentification=document.getElementById('speakerIdentification');
+            let filesToUpload = [];
+            dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('active'); });
+            dropZone.addEventListener('dragleave', () => { dropZone.classList.remove('active'); });
+            dropZone.addEventListener('drop', (e) => { e.preventDefault(); dropZone.classList.remove('active'); handleFiles(e.dataTransfer.files); });
+            dropZone.querySelector('button').addEventListener('click', (e) => { e.preventDefault(); fileInput.click(); });
+            fileInput.addEventListener('change', (e) => { handleFiles(e.target.files); });
+            function formatFileSize(bytes){if(bytes===0)return"0 Bytes";const k=1024,i=Math.floor(Math.log(bytes)/Math.log(k));return parseFloat((bytes/Math.pow(k,i)).toFixed(2))+" "+["Bytes","KB","MB","GB"][i]}
+            function handleFiles(files) {
+                for (const file of files) {
+                    if (!file.type.startsWith('audio/') && !file.type.startsWith('video/')) { 
+                        showMessage(`File "${file.name}" is not supported. Please upload an audio or video file.`, 'error'); 
+                        continue; 
+                    }
+                    const MAX_SIZE_MB = 50;
+                    if (file.size > MAX_SIZE_MB * 1024 * 1024) { 
+                        showMessage(`File "${file.name}" exceeds the ${MAX_SIZE_MB}MB size limit. Please upload a smaller file.`, 'error'); 
+                        continue; 
+                    }
+                    filesToUpload.push(file);
+                }
+                renderFileList();
+            }
+            function renderFileList() {
+                fileList.innerHTML = '';
+                filesToUpload.forEach((file, index) => {
+                    const fileItem = document.createElement('div');
+                    fileItem.className = 'file-list-item flex items-center justify-between p-4 rounded-xl shadow-md border';
+                    fileItem.innerHTML = `<div class="flex items-center space-x-4 min-w-0"><i data-lucide="file-audio" class="h-8 w-8 flex-shrink-0" style="color:var(--brand-secondary)"></i><div class="flex-1 min-w-0"><p class="font-semibold truncate" style="color:var(--text-primary)">${file.name}</p><p class="text-sm" style="color:var(--text-secondary)">${formatFileSize(file.size)}</p></div></div><button class="text-red-400 hover:text-red-600 transition-colors flex-shrink-0" data-index="${index}"><i data-lucide="x-circle" class="h-6 w-6"></i></button>`;
+                    fileList.appendChild(fileItem);
+                });
+                lucide.createIcons();
+                transcribeButton.disabled = filesToUpload.length === 0;
+                transcribeButton.textContent = filesToUpload.length > 0 ? `Start Transcription (${filesToUpload.length})` : 'Start Transcription';
+                fileList.classList.toggle('hidden', filesToUpload.length === 0);
+            }
+            fileList.addEventListener('click', (e) => {
+                const button = e.target.closest('button');
+                if (button) { filesToUpload.splice(button.dataset.index, 1); renderFileList(); }
+            });
+            async function transcribeBlob(blob, mimeType, fileName) {
+                 return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onerror = () => reject(new Error(`Failed to read file "${fileName}". Please ensure the file is not corrupted and try again.`));
+                    reader.onload = async () => {
+                        const base64Data = reader.result.split(',')[1];
+                        const apiKey = "";
+                        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+                        const payload = { contents: [{ parts: [{ text: `Transcribe this. Speaker ID: ${speakerIdentification.checked}. Lang: ${languageSelect.value}.` }, { inlineData: { mimeType: mimeType, data: base64Data } }] }] };
+                        for (let retries = 0; retries < 5; retries++) {
+                            try {
+                                const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                                if (response.status === 429) throw new Error(`API rate limit exceeded for file "${fileName}". Please wait and try again later.`);
+                                if (!response.ok) throw new Error(`API error for file "${fileName}": ${response.status} ${response.statusText}`);
+                                const result = await response.json();
+                                if (!result?.candidates?.[0]?.content?.parts?.[0]?.text) throw new Error(`No transcription returned for file "${fileName}". The file may be empty or unsupported.`);
+                                return resolve(result.candidates[0].content.parts[0].text);
+                            } catch (error) {
+                                console.error(`Attempt ${retries + 1} failed for "${fileName}":`, error.message);
+                                if (retries < 4) await new Promise(res => setTimeout(res, Math.pow(2, retries) * 1000));
+                                else reject(error);
+                            }
+                        }
+                    };
+                    reader.readAsDataURL(blob);
+                });
+            }
+            transcribeButton.addEventListener('click', async () => {
+                if (filesToUpload.length === 0) return showMessage('No files selected. Please upload at least one audio or video file to transcribe.', 'error');
+                uploadSection.classList.add('hidden'); loadingScreen.classList.remove('hidden');
+                let failedFiles = [];
+                try {
+                    for (const file of filesToUpload) { 
+                        try {
+                            const text = await transcribeBlob(file, file.type, file.name);
+                            transcriptions.unshift({ id: Date.now(), title: file.name, date: new Date().toISOString(), snippet: text.substring(0, 80) + '...', fullText: text, tags: ['uploaded', languageSelect.value], duration: 'N/A', type: 'upload' });
+                        } catch (error) {
+                            failedFiles.push({ name: file.name, reason: error.message });
+                        }
+                    }
+                    saveTranscriptions();
+                    renderCards(); showPage('history');
+                    if (failedFiles.length === 0) {
+                        showMessage(`${filesToUpload.length} file(s) transcribed successfully.`, 'success');
+                    } else if (failedFiles.length === filesToUpload.length) {
+                        showMessage(`All transcriptions failed: ${failedFiles.map(f => `"${f.name}" (${f.reason})`).join(', ')}.`, 'error');
+                    } else {
+                        showMessage(`Transcribed ${filesToUpload.length - failedFiles.length} file(s) successfully. Failed: ${failedFiles.map(f => `"${f.name}" (${f.reason})`).join(', ')}.`, 'error');
+                    }
+                } catch (error) {
+                    console.error("Transcription process failed:", error);
+                    showMessage(`Unexpected error during transcription: ${error.message}. Please try again or contact support.`, 'error');
+                } finally {
+                    loadingScreen.classList.add('hidden');
+                    uploadSection.classList.remove('hidden');
+                    filesToUpload = []; renderFileList();
+                }
+            });
+
+            // --- LIVE RECORDING LOGIC ---
+            const recordButton = document.getElementById('recordButton');
+            const recordingStatus = document.getElementById('recordingStatus');
+            const liveLoadingIndicator = document.getElementById('liveLoadingIndicator');
+            const liveTranscriptDiv = document.getElementById('liveTranscript');
+            const saveRecordingButton = document.getElementById('saveRecordingButton');
+            let isRecording = false;
+            let mediaRecorder;
+            let audioChunks = [];
+
+            recordButton.addEventListener('click', () => {
+                isRecording ? stopLiveRecording() : startLiveRecording();
+            });
+
+            async function startLiveRecording() {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+                    mediaRecorder.start();
+                    audioChunks = [];
+                    mediaRecorder.addEventListener("dataavailable", e => audioChunks.push(e.data));
+                    
+                    isRecording = true;
+                    recordButton.textContent = 'Stop';
+                    recordButton.classList.add('recording');
+                    recordingStatus.classList.remove('hidden');
+                    liveTranscriptDiv.textContent = 'Recording...';
+                    saveRecordingButton.disabled = true;
+
+                } catch (error) {
+                    console.error('Error accessing microphone:', error);
+                    showMessage('Could not access microphone: Permission denied or no microphone found. Please check your browser settings and try again.', 'error');
+                    closeModal('liveRecordModal');
+                }
+            }
+
+            function stopLiveRecording(shouldTranscribe = true) {
+                if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                    mediaRecorder.stop();
+                    mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                    
+                    isRecording = false;
+                    recordButton.textContent = 'Start';
+                    recordButton.classList.remove('recording');
+                    recordingStatus.classList.add('hidden');
+
+                    if (!shouldTranscribe) {
+                        liveTranscriptDiv.textContent = 'Start recording to see your transcription here.';
+                        liveLoadingIndicator.classList.add('hidden');
+                        return;
+                    }
+
+                    liveLoadingIndicator.classList.remove('hidden');
+                    liveTranscriptDiv.textContent = '';
+
+                    mediaRecorder.addEventListener("stop", async () => {
+                        const audioBlob = new Blob(audioChunks, { 'type': 'audio/webm' });
+                        try {
+                            const text = await transcribeBlob(audioBlob, 'audio/webm', 'live recording');
+                            liveTranscriptDiv.textContent = text;
+                            saveRecordingButton.disabled = false;
+                        } catch (error) {
+                            liveTranscriptDiv.textContent = 'Transcription failed.';
+                            showMessage(`Live transcription failed: ${error.message}. Please try recording again or check your network connection.`, 'error');
+                        } finally {
+                            liveLoadingIndicator.classList.add('hidden');
+                        }
+                    });
+                }
+            }
+
+            saveRecordingButton.addEventListener('click', () => {
+                const text = liveTranscriptDiv.textContent;
+                if(text && text !== 'Recording...' && text !== 'Start recording to see your transcription here.' && text !== 'Transcription failed.') {
+                    const title = `Live Recording - ${new Date().toLocaleString()}`;
+                    transcriptions.unshift({ id: Date.now(), title: title, date: new Date().toISOString(), snippet: text.substring(0, 80) + '...', fullText: text, tags: ['live', languageSelect.value], duration: 'N/A', type: 'voicenote' });
+                    saveTranscriptions();
+                    renderCards();
+                    closeModal('liveRecordModal');
+                    showMessage('Live transcription saved to history.', 'success');
+                } else {
+                    showMessage('No valid transcription to save. Please record and transcribe again.', 'error');
+                }
+            });
+
+            // --- THEME TOGGLE LOGIC ---
+            const themeToggles = [document.getElementById('theme-toggle'), document.getElementById('mobile-theme-toggle')];
+            const htmlEl = document.documentElement;
+
+            function updateAllThemeIcons() {
+                const isLight = htmlEl.classList.contains('light');
+                themeToggles.forEach(toggle => {
+                    if (toggle) {
+                        const sunIcon = toggle.querySelector('[data-lucide="sun"]');
+                        const moonIcon = toggle.querySelector('[data-lucide="moon"]');
+                        if (sunIcon) sunIcon.style.display = isLight ? 'block' : 'none';
+                        if (moonIcon) moonIcon.style.display = isLight ? 'none' : 'block';
+                    }
+                });
+            }
+
+            function toggleTheme() {
+                htmlEl.classList.toggle('light');
+                localStorage.setItem('theme', htmlEl.classList.contains('light') ? 'light' : 'dark');
+                updateAllThemeIcons();
+            }
+
+            themeToggles.forEach(toggle => toggle.addEventListener('click', toggleTheme));
+
+            // --- INITIAL LOAD ---
+            loadTranscriptions();
+            renderCards(); 
+            updateAllThemeIcons(); 
+
+            if (sessionStorage.getItem('wantsToRecord') === 'true') {
+                sessionStorage.removeItem('wantsToRecord');
+                openModal('liveRecordModal');
+            }
+        });
+    </script>
+</body>
+</html>
