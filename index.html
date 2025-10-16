@@ -518,53 +518,38 @@
                 const button = e.target.closest('button');
                 if (button) { filesToUpload.splice(button.dataset.index, 1); renderFileList(); }
             });
-            async function transcribeWithAssemblyAI(blob) {
-                const apiKey = "9fff9006a4a643a999f30cb3bff5c02f";
-                
-                // 1. Upload the file
-                const uploadResponse = await fetch('https://api.assemblyai.com/v2/upload', {
-                    method: 'POST',
-                    headers: { 'authorization': apiKey },
-                    body: blob
+            async function transcribeBlob(blob, mimeType) {
+                 return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onerror = () => reject(new Error("Failed to read blob."));
+                    reader.onload = async () => {
+                        const base64Data = reader.result.split(',')[1];
+                        const apiKey = "";
+                        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+                        const payload = { contents: [{ parts: [{ text: `Transcribe this. Speaker ID: ${speakerIdentification.checked}. Lang: ${languageSelect.value}.` }, { inlineData: { mimeType: mimeType, data: base64Data } }] }] };
+                        for (let retries = 0; retries < 5; retries++) {
+                            try {
+                                const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                                if (response.status === 429) throw new Error(`API rate limit exceeded.`);
+                                if (!response.ok) throw new Error(`API error: ${response.status}`);
+                                const result = await response.json();
+                                return resolve(result?.candidates?.[0]?.content?.parts?.[0]?.text || "No transcription available.");
+                            } catch (error) {
+                                console.error(`Attempt ${retries + 1} failed:`, error.message);
+                                if (retries < 4) await new Promise(res => setTimeout(res, Math.pow(2, retries) * 1000));
+                            }
+                        }
+                        reject(new Error("API call failed after multiple retries."));
+                    };
+                    reader.readAsDataURL(blob);
                 });
-                const uploadData = await uploadResponse.json();
-                
-                if (!uploadData.upload_url) {
-                    throw new Error('File upload to AssemblyAI failed.');
-                }
-
-                // 2. Submit for transcription
-                const transcribeResponse = await fetch('https://api.assemblyai.com/v2/transcript', {
-                    method: 'POST',
-                    headers: { 'authorization': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ audio_url: uploadData.upload_url, speaker_labels: speakerIdentification.checked })
-                });
-                const transcribeData = await transcribeResponse.json();
-                
-                if (transcribeData.status === 'error') {
-                    throw new Error(`AssemblyAI transcription error: ${transcribeData.error}`);
-                }
-
-                // 3. Poll for results
-                const pollingEndpoint = `https://api.assemblyai.com/v2/transcript/${transcribeData.id}`;
-                while (true) {
-                    const pollingResponse = await fetch(pollingEndpoint, { headers: { 'authorization': apiKey } });
-                    const pollingData = await pollingResponse.json();
-                    
-                    if (pollingData.status === 'completed') {
-                        return pollingData.text || "Transcription complete, but no text was returned.";
-                    } else if (pollingData.status === 'error') {
-                        throw new Error(`Transcription failed: ${pollingData.error}`);
-                    }
-                    await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds before polling again
-                }
             }
             transcribeButton.addEventListener('click', async () => {
                 if (filesToUpload.length === 0) return showMessage('Please upload at least one file.');
                 uploadSection.classList.add('hidden'); loadingScreen.classList.remove('hidden');
                 try {
                     for (const file of filesToUpload) { 
-                        const text = await transcribeWithAssemblyAI(file);
+                        const text = await transcribeBlob(file, file.type);
                         transcriptions.unshift({ id: Date.now(), title: file.name, date: new Date().toISOString(), snippet: text.substring(0, 80) + '...', fullText: text, tags: ['uploaded', languageSelect.value], duration: 'N/A', type: 'upload' });
                     }
                     saveTranscriptions();
@@ -640,7 +625,7 @@
                     mediaRecorder.addEventListener("stop", async () => {
                         const audioBlob = new Blob(audioChunks, { 'type': 'audio/webm' });
                         try {
-                            const text = await transcribeWithAssemblyAI(audioBlob);
+                            const text = await transcribeBlob(audioBlob, 'audio/webm');
                             liveTranscriptDiv.textContent = text;
                             saveRecordingButton.disabled = false;
                         } catch(e) {
@@ -696,3 +681,4 @@
     </script>
 </body>
 </html>
+
